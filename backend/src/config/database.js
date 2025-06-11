@@ -2,35 +2,18 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 // Define the path for the SQLite database file
-// It will be created in the 'backend' directory (one level up from 'src') if it doesn't exist.
+// It will be created in the 'backend' directory (one level up from 'src/config') if it doesn't exist.
 const DB_PATH = path.resolve(__dirname, '..', '..', 'finance_tracker.db');
 
-// Create a new database instance
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('CRITICAL: Error opening database:', err.message);
-    console.error('Application cannot start without a database connection. Exiting.');
-    process.exit(1); // Exit if DB connection fails
-  } else {
-    console.log('Connected to the SQLite database at', DB_PATH);
-    // Initialize database schema (create tables if they don't exist)
-    initializeDb();
-  }
-});
-
 // Function to initialize database schema
-function initializeDb() {
-  db.serialize(() => {
-    // Enable foreign key support if needed in the future
-    // db.run('PRAGMA foreign_keys = ON;', (pragmaErr) => {
-    //   if (pragmaErr) {
-    //     console.error('Error enabling foreign keys:', pragmaErr.message);
-    //   }
-    // });
+// It takes the db instance and a completion callback (err)
+function initializeDbSchema(dbInstance, callback) {
+  dbInstance.serialize(() => {
+    let initializationError = null;
 
     // Transactions Table
     // Stores individual income and expense records
-    db.run(`
+    dbInstance.run(`
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,    -- Unique identifier for the transaction
         type TEXT NOT NULL CHECK(type IN ('income', 'expense')), -- Type of transaction: 'income' or 'expense'
@@ -43,7 +26,8 @@ function initializeDb() {
       )
     `, (err) => {
       if (err) {
-        console.error('Error creating transactions table:', err.message);
+        console.error('CRITICAL: Error creating transactions table:', err.message);
+        if (!initializationError) initializationError = err; // Capture first error
       } else {
         console.log('Transactions table checked/created successfully.');
       }
@@ -51,7 +35,7 @@ function initializeDb() {
 
     // Budgets Table
     // Stores budget limits for categories over periods
-    db.run(`
+    dbInstance.run(`
       CREATE TABLE IF NOT EXISTS budgets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT NOT NULL,           -- Category for the budget (e.g., Groceries)
@@ -65,19 +49,58 @@ function initializeDb() {
       )
     `, (err) => {
       if (err) {
-        console.error('Error creating budgets table:', err.message);
+        console.error('CRITICAL: Error creating budgets table:', err.message);
+        if (!initializationError) initializationError = err; // Capture first error
       } else {
         console.log('Budgets table checked/created successfully.');
       }
     });
 
-    // Add more table creations here as needed (e.g., users, categories_config)
-    // Consider adding indexes for frequently queried columns like 'date' in transactions or 'category' in budgets
-    // db.run('CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (date);');
-    // db.run('CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions (category);');
-    // db.run('CREATE INDEX IF NOT EXISTS idx_budgets_category_period ON budgets (category, period);');
+    // Add a final operation to the queue. Its callback will run after all preceding operations.
+    // This ensures that the main callback (signaling schema initialization completion) 
+    // is invoked only after all table creation attempts have finished.
+    dbInstance.run('SELECT 1', (err) => { // A dummy operation to ensure queue flushes for table creation checks
+        if (err && !initializationError) {
+            // This specific dummy SELECT 1 should not error, but if it did, capture it.
+            initializationError = err; 
+        }
+        // This callback is the last in the serialize queue for schema initialization.
+        // It signals completion of table creation attempts.
+        callback(initializationError); 
+    });
   });
 }
 
-// Export the database instance
+// Create a new database instance. The instance is exported directly.
+// Its readiness (connection and schema initialization) is handled asynchronously.
+const db = new sqlite3.Database(DB_PATH, (connectErr) => {
+  if (connectErr) {
+    console.error('CRITICAL: Error opening database connection:', connectErr.message);
+    console.error('Application cannot start without a database connection. Exiting.');
+    process.exit(1); // Exit if DB connection fails
+  } else {
+    console.log('Successfully connected to the SQLite database at', DB_PATH);
+    
+    // Now initialize the schema
+    initializeDbSchema(db, (initErr) => {
+      if (initErr) {
+        console.error('CRITICAL: Database schema initialization failed:', initErr.message);
+        console.error('Application cannot continue. Attempting to close database and exiting.');
+        db.close((closeErr) => {
+          if (closeErr) console.error('Error closing database during shutdown:', closeErr.message);
+          process.exit(1);
+        });
+      } else {
+        console.log('Database schema checked/initialized successfully.');
+        // The 'db' instance is now fully ready (connected and schema initialized).
+        // Services requiring 'db' can now safely use it.
+      }
+    });
+  }
+});
+
+// Export the database instance. Callers should be aware that DB operations
+// might fail if used before the async initialization (connection + schema) completes.
+// However, critical errors during this setup now lead to process.exit(1), preventing
+// the application from running in an inconsistent state.
 module.exports = db;
