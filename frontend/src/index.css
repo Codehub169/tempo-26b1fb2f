@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-primary: 'Inter', sans-serif;
+    --font-secondary: 'Poppins', sans-serif;
+
+    --color-primary: #4F46E5; /* Indigo */
+    --color-primary-light: #6366F1;
+    --color-accent: #10B981; /* Emerald */
+
+    --color-neutral-50: #F9FAFB;
+    --color-neutral-100: #F3F4F6;
+    --color-neutral-200: #E5E7EB;
+    --color-neutral-300: #D1D5DB;
+    --color-neutral-400: #9CA3AF; /* Added for icon colors in nav */
+    --color-neutral-500: #6B7280;
+    --color-neutral-600: #4B5563; /* Added for slightly darker text/icons */
+    --color-neutral-700: #374151;
+    --color-neutral-800: #1F2937;
+    --color-neutral-900: #111827;
+
+    --color-success: #10B981;
+    --color-warning: #F59E0B;
+    --color-error: #EF4444;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+    --rounded-sm: 0.125rem; /* 2px */
+    --rounded-md: 0.375rem; /* 6px */
+    --rounded-lg: 0.5rem; /* 8px */
+    --rounded-xl: 0.75rem; /* 12px */
+    --rounded-full: 9999px;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    box-sizing: border-box;
+  }
+
+  *, *::before, *::after {
+    box-sizing: inherit;
+  }
+
+  body {
+    font-family: var(--font-primary);
+    background-color: var(--color-neutral-100);
+    color: var(--color-neutral-800);
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column; /* Ensure body takes full height for potential footers etc. */
+  }
+
+  #root {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    width: 100%;
+  }
+
+  /* Add other global styles or overrides here */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-secondary);
+    color: var(--color-neutral-900);
+  }
+}
+
+/* Example of a custom component style, if needed */
+/* @layer components {
+  .btn-custom {
+    @apply py-2 px-4 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75;
+  }
+} */
