@@ -7,7 +7,20 @@ const app = require("./app");
 // critical exit on connection failure.
 const database = require("./config/database"); // This is the sqlite3.Database instance
 
-const PORT = process.env.PORT || 3001;
+let PORT;
+const rawPortEnv = process.env.PORT;
+if (rawPortEnv !== undefined) {
+    const parsedPort = parseInt(rawPortEnv, 10);
+    if (isNaN(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+        // Log directly to stderr for immediate visibility, especially in containerized environments
+        process.stderr.write(`[SERVER_CRITICAL] Invalid PORT environment variable specified: "${rawPortEnv}". Must be a number between 1 and 65535. Exiting.\n`);
+        process.exit(1); // Exit immediately if PORT is set and invalid
+    }
+    PORT = parsedPort;
+} else {
+    PORT = 3001; // Default port if PORT environment variable is not set
+}
+
 let server; // http.Server instance, will be defined once listening
 
 async function startServer() {
