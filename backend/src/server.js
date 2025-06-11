@@ -37,7 +37,10 @@ async function startServer() {
     server.on("error", (error) => {
       console.error("[SERVER_ERROR] HTTP Server emitted 'error' event:", error.message, error.stack);
       // E.g., EADDRINUSE error
-      criticalErrorHandler("HTTPServerError", error);
+      // Ensure criticalErrorHandler is called only once per shutdown sequence
+      if (!shuttingDown) {
+        criticalErrorHandler("HTTPServerError", error);
+      }
     });
 
   } catch (error) {
@@ -64,103 +67,114 @@ let shuttingDown = false; // Flag to prevent multiple shutdown attempts
 
 // Graceful shutdown logic
 const gracefulShutdown = (signal) => {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    console.log(`[GRACEFUL_SHUTDOWN_IGNORED] Shutdown already in progress. Signal: ${signal}`);
+    return;
+  }
   shuttingDown = true;
 
-  console.log(`${signal} received. Shutting down gracefully...`);
+  console.log(`[GRACEFUL_SHUTDOWN] ${signal} received. Shutting down gracefully...`);
   
   const shutdownTimeout = setTimeout(() => {
-    console.error("Graceful shutdown timeout: Could not close connections in time, forcefully shutting down.");
+    console.error("[GRACEFUL_SHUTDOWN_TIMEOUT] Could not close connections in time, forcefully shutting down.");
     process.exit(1); // Non-zero for forced exit
   }, 10000); // 10 seconds timeout
 
   const closeDbAndExit = (exitCode) => {
     if (database && typeof database.close === "function") {
+      console.log("[GRACEFUL_SHUTDOWN] Attempting to close database connection...");
       database.close((dbErr) => {
         if (dbErr) {
-          console.error("Error closing SQLite database:", dbErr.message);
+          console.error("[GRACEFUL_SHUTDOWN_DB_ERROR] Error closing SQLite database:", dbErr.message);
         } else {
-          console.log("SQLite database connection closed.");
+          console.log("[GRACEFUL_SHUTDOWN_DB_SUCCESS] SQLite database connection closed.");
         }
         clearTimeout(shutdownTimeout);
-        console.log(`Exiting process with code ${exitCode} due to ${signal}.`);
+        console.log(`[GRACEFUL_SHUTDOWN_EXIT] Exiting process with code ${exitCode} due to ${signal}.`);
         process.exit(exitCode);
       });
     } else {
-        console.error("Database module or close function not available during graceful shutdown. Exiting without DB close attempt.");
+        console.error("[GRACEFUL_SHUTDOWN_DB_UNAVAILABLE] Database module or close function not available. Exiting without DB close attempt.");
         clearTimeout(shutdownTimeout);
         process.exit(exitCode); // Still exit, but log the issue with DB close.
     }
   };
 
   if (server && server.listening) { // Check if server exists and is listening
+    console.log("[GRACEFUL_SHUTDOWN] Closing HTTP server...");
     server.close((err) => {
       if (err) {
-        console.error("Error during HTTP server close:", err.message);
+        console.error("[GRACEFUL_SHUTDOWN_SERVER_ERROR] Error during HTTP server close:", err.message);
+        // Consider if exit code should change on server close error, for now, it's 0 for graceful attempt
       }
-      console.log("HTTP server closed.");
+      console.log("[GRACEFUL_SHUTDOWN_SERVER_CLOSED] HTTP server closed.");
       closeDbAndExit(0);
     });
   } else {
-    console.log("HTTP server was not running or not fully started. Closing database directly.");
+    console.log("[GRACEFUL_SHUTDOWN_NO_SERVER] HTTP server was not running or not fully started. Closing database directly.");
     closeDbAndExit(0); // Assuming 0 for graceful exit even if server wasn't fully up
   }
 };
 
 // Critical error handler
 const criticalErrorHandler = (errorType, error, promiseOrOrigin) => {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    console.log(`[CRITICAL_ERROR_HANDLER_IGNORED] Shutdown already in progress. Error type: ${errorType}`);
+    return;
+  }
   shuttingDown = true;
 
-  console.error(`CRITICAL ERROR: ${errorType} detected!`);
+  console.error(`[CRITICAL_ERROR_HANDLER] CRITICAL ERROR: ${errorType} detected!`);
   if (promiseOrOrigin && errorType === "Unhandled Rejection") {
-    console.error("Promise causing rejection:", promiseOrOrigin);
+    console.error("[CRITICAL_ERROR_HANDLER] Promise causing rejection:", promiseOrOrigin);
   }
   if (promiseOrOrigin && errorType === "Uncaught Exception") {
-    console.error("Origin of exception:", promiseOrOrigin);
+    console.error("[CRITICAL_ERROR_HANDLER] Origin of exception:", promiseOrOrigin);
   }
-  console.error("Error details:", error ? (error.stack || error) : "No error object available");
-  console.error("Application will now attempt to shut down and exit.");
+  console.error("[CRITICAL_ERROR_HANDLER] Error details:", error ? (error.stack || error.message || error) : "No error object available");
+  console.error("[CRITICAL_ERROR_HANDLER] Application will now attempt to shut down and exit.");
 
   const forceExitTimeout = setTimeout(() => {
-    console.error("Critical error shutdown: Timeout reached. Forcefully shutting down.");
+    console.error("[CRITICAL_ERROR_HANDLER_TIMEOUT] Critical error shutdown: Timeout reached. Forcefully shutting down.");
     process.exit(1); 
   }, 5000); // 5 seconds for cleanup attempts
 
   const attemptDbCloseAndFinalExit = () => {
     if (database && typeof database.close === "function") {
+      console.log("[CRITICAL_ERROR_HANDLER] Attempting to close database connection...");
       database.close((dbErr) => {
         if (dbErr) {
-          console.error("Error closing SQLite database during critical error shutdown:", dbErr.message);
+          console.error("[CRITICAL_ERROR_HANDLER_DB_ERROR] Error closing SQLite database during critical error shutdown:", dbErr.message);
         } else {
-          console.log("SQLite database connection closed during critical error shutdown.");
+          console.log("[CRITICAL_ERROR_HANDLER_DB_SUCCESS] SQLite database connection closed during critical error shutdown.");
         }
         clearTimeout(forceExitTimeout);
         process.exit(1);
       });
     } else {
-        console.error("Database module or close function not available during critical error shutdown. Exiting without DB close attempt.");
+        console.error("[CRITICAL_ERROR_HANDLER_DB_UNAVAILABLE] Database module or close function not available. Exiting without DB close attempt.");
         clearTimeout(forceExitTimeout);
         process.exit(1);
     }
   };
 
   if (server && server.listening) { // Check if server exists and is listening
+    console.log("[CRITICAL_ERROR_HANDLER] Closing HTTP server...");
     try {
       server.close((serverCloseErr) => {
         if (serverCloseErr) {
-          console.error("Error closing HTTP server during critical error shutdown:", serverCloseErr.message);
+          console.error("[CRITICAL_ERROR_HANDLER_SERVER_ERROR] Error closing HTTP server during critical error shutdown:", serverCloseErr.message);
         } else {
-          console.log("HTTP server closed during critical error shutdown.");
+          console.log("[CRITICAL_ERROR_HANDLER_SERVER_CLOSED] HTTP server closed during critical error shutdown.");
         }
         attemptDbCloseAndFinalExit();
       });
     } catch (e) {
-      console.error("Synchronous error during server.close() call in critical error handler:", e.message);
+      console.error("[CRITICAL_ERROR_HANDLER_SERVER_CLOSE_SYNC_ERROR] Synchronous error during server.close() call:", e.message);
       attemptDbCloseAndFinalExit(); // Proceed to DB close even if server.close() call fails
     }
   } else {
-    console.log("HTTP server was not running or not initialized during critical error. Closing database directly.");
+    console.log("[CRITICAL_ERROR_HANDLER_NO_SERVER] HTTP server was not running or not initialized. Closing database directly.");
     attemptDbCloseAndFinalExit();
   }
 };
@@ -177,6 +191,13 @@ process.on("unhandledRejection", (reason, promise) => {
 // Handle uncaught exceptions
 process.on("uncaughtException", (error, origin) => {
   criticalErrorHandler("Uncaught Exception", error, origin);
+});
+
+// Listener for the 'exit' event. This is for diagnostics to see the exit code.
+// This handler can only perform synchronous operations.
+process.on('exit', (code) => {
+  // Using process.stderr.write for immediate flushing if possible, as console.log might be asynchronous here.
+  process.stderr.write(`[PROCESS_EXIT_INFO] Node.js process is about to exit with code: ${code}\n`);
 });
 
 // Start the server initialization process
